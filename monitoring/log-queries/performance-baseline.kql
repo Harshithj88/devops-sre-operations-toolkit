@@ -1,0 +1,40 @@
+// Performance Baseline Analysis
+// Establish percentile baselines and detect anomalies
+
+// --- Request duration percentiles (hourly) ---
+AppRequests
+| where TimeGenerated > ago(7d)
+| summarize
+    p50 = percentile(DurationMs, 50),
+    p95 = percentile(DurationMs, 95),
+    p99 = percentile(DurationMs, 99),
+    AvgMs = avg(DurationMs),
+    RequestCount = count()
+    by bin(TimeGenerated, 1h)
+| order by TimeGenerated asc
+
+// --- Slow requests (> 5 seconds) ---
+// AppRequests
+// | where TimeGenerated > ago(24h)
+// | where DurationMs > 5000
+// | summarize Count = count() by OperationName, bin(TimeGenerated, 1h)
+// | order by Count desc
+
+// --- Dependency call performance ---
+// AppDependencies
+// | where TimeGenerated > ago(24h)
+// | summarize
+//     AvgMs = avg(DurationMs),
+//     p95 = percentile(DurationMs, 95),
+//     FailRate = round(100.0 * countif(Success == false) / count(), 2),
+//     CallCount = count()
+//     by Target, DependencyType
+// | order by p95 desc
+
+// --- Server resource utilization trend ---
+// Perf
+// | where TimeGenerated > ago(7d)
+// | where ObjectName == "Processor" and CounterName == "% Processor Time"
+// | summarize AvgCPU = avg(CounterValue), MaxCPU = max(CounterValue)
+//     by bin(TimeGenerated, 1h), Computer
+// | order by TimeGenerated asc

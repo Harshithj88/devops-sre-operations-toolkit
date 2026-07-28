@@ -1,0 +1,30 @@
+name: Validate Bicep Templates
+
+on:
+  push:
+    branches: [main]
+    paths: ['infra/**', 'monitoring/**']
+  pull_request:
+    branches: [main]
+    paths: ['infra/**', 'monitoring/**']
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint Bicep files
+        run: |
+          echo "Linting Bicep templates..."
+          find . -name '*.bicep' -not -path './.git/*' | while read file; do
+            echo "Linting $file"
+            az bicep lint --file "$file" --diagnostics-format sarif || true
+          done
+
+      - name: Build Bicep (validate syntax)
+        run: |
+          echo "Building main.bicep..."
+          az bicep build --file infra/bicep/main.bicep --stdout > /dev/null
+          echo "Bicep build succeeded."

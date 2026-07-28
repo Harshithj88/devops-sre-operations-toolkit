@@ -1,0 +1,101 @@
+trigger: none
+pr: none
+
+parameters:
+  - name: environment
+    displayName: Target Environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - staging
+      - prod
+  - name: imageTag
+    displayName: Container Image Tag
+    type: string
+
+variables:
+  acrName: 'myacr'
+  aksClusterName: 'aks-$(environment)'
+  aksResourceGroup: 'rg-aks-$(environment)'
+  helmReleaseName: 'my-app'
+  helmChartPath: 'helm/my-app'
+  namespace: 'my-app'
+
+stages:
+  - stage: Deploy
+    displayName: Deploy to ${{ parameters.environment }}
+    jobs:
+      - ${{ if eq(parameters.environment, 'prod') }}:
+        - job: Approval
+          pool: server
+          timeoutInMinutes: 1440
+          steps:
+            - task: ManualValidation@1
+              timeoutInMinutes: 1440
+              inputs:
+                instructions: 'Approve production Kubernetes deployment (image: ${{ parameters.imageTag }})'
+                onTimeout: reject
+
+      - job: HelmDeploy
+        displayName: Helm Deploy
+        ${{ if eq(parameters.environment, 'prod') }}:
+          dependsOn: Approval
+          condition: succeeded('Approval')
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: Get AKS Credentials
+            inputs:
+              azureSubscription: 'Azure-ServiceConnection'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group $(aksResourceGroup) \
+                  --name $(aksClusterName) \
+                  --overwrite-existing
+
+          - task: HelmDeploy@1
+            displayName: Helm Upgrade
+            inputs:
+              connectionType: 'None'
+              namespace: $(namespace)
+              command: upgrade
+              chartType: FilePath
+              chartPath: $(helmChartPath)
+              releaseName: $(helmReleaseName)
+              overrideValues: |
+                image.repository=$(acrName).azurecr.io/my-app
+                image.tag=${{ parameters.imageTag }}
+              arguments: >-
+                --install
+                --wait
+                --timeout 300s
+                --values $(helmChartPath)/values-${{ parameters.environment }}.yaml
+                --history-max 5
+
+          - bash: |
+              echo "Verifying deployment..."
+              kubectl rollout status deployment/$(helmReleaseName) -n $(namespace) --timeout=120s
+              kubectl get pods -n $(namespace) -l app=$(helmReleaseName)
+            displayName: Verify Deployment
+
+          - bash: |
+              echo "Running smoke tests..."
+              SVC_IP=$(kubectl get svc $(helmReleaseName) -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+              if [ -z "$SVC_IP" ]; then
+                echo "No external IP found, using port-forward..."
+                kubectl port-forward svc/$(helmReleaseName) 8080:80 -n $(namespace) &
+                sleep 5
+                SVC_IP="localhost:8080"
+              fi
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$SVC_IP/health)
+              if [ "$STATUS" = "200" ]; then
+                echo "Health check passed."
+              else
+                echo "Health check failed with status $STATUS"
+                exit 1
+              fi
+            displayName: Post-Deploy Smoke Test

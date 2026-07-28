@@ -1,0 +1,97 @@
+name: Deploy Infrastructure (Bicep)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  RESOURCE_GROUP_DEV: rg-ops-dev
+  RESOURCE_GROUP_PROD: rg-ops-prod
+  LOCATION: eastus
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Lint Bicep
+        run: az bicep lint --file infra/bicep/main.bicep
+
+      - name: Validate (What-If)
+        run: |
+          az deployment group what-if \
+            --resource-group ${{ env.RESOURCE_GROUP_DEV }} \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/bicep/params/dev.bicepparam
+
+  deploy-dev:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Dev
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP_DEV }} \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/bicep/params/dev.bicepparam \
+            --mode Incremental
+
+  deploy-prod:
+    needs: deploy-dev
+    if: github.event.inputs.environment == 'prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Prod
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP_PROD }} \
+            --template-file infra/bicep/main.bicep \
+            --parameters infra/bicep/params/prod.bicepparam \
+            --mode Incremental

@@ -1,0 +1,34 @@
+// Deployment Correlation Analysis
+// Correlate deployment events with error rate and performance changes
+
+// --- Error rate before vs after deployment (replace timestamp) ---
+let deployTime = datetime(2024-01-15T14:00:00Z);
+let windowHours = 2;
+AppRequests
+| where TimeGenerated between (deployTime - windowHours*1h .. deployTime + windowHours*1h)
+| summarize
+    TotalRequests = count(),
+    FailedRequests = countif(Success == false),
+    ErrorRate = round(100.0 * countif(Success == false) / count(), 2),
+    AvgDurationMs = round(avg(DurationMs), 1)
+    by bin(TimeGenerated, 5m), Phase = iff(TimeGenerated < deployTime, "Before", "After")
+| order by TimeGenerated asc
+
+// --- Compare error counts pre/post deploy ---
+// let deployTime = datetime(2024-01-15T14:00:00Z);
+// AppExceptions
+// | where TimeGenerated between (deployTime - 2h .. deployTime + 2h)
+// | summarize Count = count()
+//     by Phase = iff(TimeGenerated < deployTime, "Before", "After"), ProblemId
+// | order by Phase, Count desc
+
+// --- New errors introduced after deployment ---
+// let deployTime = datetime(2024-01-15T14:00:00Z);
+// let beforeErrors = AppExceptions
+//     | where TimeGenerated between (deployTime - 24h .. deployTime)
+//     | distinct ProblemId;
+// AppExceptions
+// | where TimeGenerated between (deployTime .. deployTime + 4h)
+// | where ProblemId !in (beforeErrors)
+// | summarize Count = count(), FirstSeen = min(TimeGenerated) by ProblemId, OuterMessage
+// | order by Count desc

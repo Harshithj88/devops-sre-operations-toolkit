@@ -1,0 +1,40 @@
+// Application Error Analysis
+// Investigate error trends, top errors, and affected users
+
+// --- Top errors in the last 24 hours ---
+AppExceptions
+| where TimeGenerated > ago(24h)
+| summarize Count = count() by ProblemId, OuterMessage, AppRoleName
+| order by Count desc
+| take 20
+
+// --- Error rate over time (15-minute buckets) ---
+// AppRequests
+// | where TimeGenerated > ago(24h)
+// | summarize
+//     TotalRequests = count(),
+//     FailedRequests = countif(Success == false),
+//     ErrorRate = round(100.0 * countif(Success == false) / count(), 2)
+//     by bin(TimeGenerated, 15m)
+// | order by TimeGenerated asc
+
+// --- HTTP 5xx errors by operation ---
+// AppRequests
+// | where TimeGenerated > ago(24h)
+// | where toint(ResultCode) >= 500
+// | summarize Count = count() by OperationName, ResultCode
+// | order by Count desc
+
+// --- Errors correlated with specific dependency ---
+// AppDependencies
+// | where TimeGenerated > ago(24h)
+// | where Success == false
+// | summarize FailCount = count() by Target, DependencyType, ResultCode
+// | order by FailCount desc
+
+// --- Exception stack trace details ---
+// AppExceptions
+// | where TimeGenerated > ago(1h)
+// | project TimeGenerated, ProblemId, OuterMessage, InnermostMessage, Details
+// | order by TimeGenerated desc
+// | take 50

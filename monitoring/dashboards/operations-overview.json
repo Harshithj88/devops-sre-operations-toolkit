@@ -1,0 +1,85 @@
+{
+  "properties": {
+    "lenses": {
+      "0": {
+        "order": 0,
+        "parts": {
+          "0": {
+            "position": { "x": 0, "y": 0, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Error Rate (Last 24h)",
+                "query": "AppRequests\n| where TimeGenerated > ago(24h)\n| summarize ErrorRate = round(100.0 * countif(Success == false) / count(), 2) by bin(TimeGenerated, 15m)\n| render timechart"
+              }
+            }
+          },
+          "1": {
+            "position": { "x": 6, "y": 0, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Response Time Percentiles (Last 24h)",
+                "query": "AppRequests\n| where TimeGenerated > ago(24h)\n| summarize p50=percentile(DurationMs,50), p95=percentile(DurationMs,95), p99=percentile(DurationMs,99) by bin(TimeGenerated, 15m)\n| render timechart"
+              }
+            }
+          },
+          "2": {
+            "position": { "x": 0, "y": 4, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Request Volume (Last 24h)",
+                "query": "AppRequests\n| where TimeGenerated > ago(24h)\n| summarize RequestCount = count() by bin(TimeGenerated, 15m)\n| render barchart"
+              }
+            }
+          },
+          "3": {
+            "position": { "x": 6, "y": 4, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Top Errors (Last 24h)",
+                "query": "AppExceptions\n| where TimeGenerated > ago(24h)\n| summarize Count = count() by ProblemId, OuterMessage\n| order by Count desc\n| take 10"
+              }
+            }
+          },
+          "4": {
+            "position": { "x": 0, "y": 8, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Dependency Failures (Last 24h)",
+                "query": "AppDependencies\n| where TimeGenerated > ago(24h)\n| where Success == false\n| summarize FailCount = count() by Target, DependencyType\n| order by FailCount desc\n| take 10"
+              }
+            }
+          },
+          "5": {
+            "position": { "x": 6, "y": 8, "colSpan": 6, "rowSpan": 4 },
+            "metadata": {
+              "type": "Extension/Microsoft_OperationsManagementSuite_Workspace/PartType/LogsDashboardPart",
+              "settings": {
+                "title": "Server CPU Utilization (Last 24h)",
+                "query": "Perf\n| where TimeGenerated > ago(24h)\n| where ObjectName == 'Processor' and CounterName == '% Processor Time'\n| summarize AvgCPU = avg(CounterValue) by bin(TimeGenerated, 15m), Computer\n| render timechart"
+              }
+            }
+          }
+        }
+      }
+    },
+    "metadata": {
+      "model": {
+        "timeRange": {
+          "value": { "relative": { "duration": 24, "timeUnit": 1 } },
+          "type": "MsPortalFx.Composition.Configuration.ValueTypes.TimeRange"
+        }
+      }
+    }
+  },
+  "name": "Operations Overview",
+  "type": "Microsoft.Portal/dashboards",
+  "location": "eastus",
+  "tags": {
+    "hidden-title": "Operations Overview Dashboard"
+  }
+}

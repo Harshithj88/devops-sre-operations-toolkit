@@ -1,0 +1,28 @@
+# PowerShell
+*.psm1.bak
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build output
+bin/
+obj/
+*.nupkg
+
+# Temp files
+*.tmp
+*.log
+*.bak
+
+# Secrets (never commit)
+*.pfx
+*.pem
+*.key
+.env

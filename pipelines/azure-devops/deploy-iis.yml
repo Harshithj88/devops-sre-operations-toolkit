@@ -1,0 +1,162 @@
+name: $(resources.pipeline.build.runName)
+trigger: none
+pr: none
+
+resources:
+  pipelines:
+    - pipeline: build
+      source: Build
+      trigger:
+        branches:
+          - main
+
+parameters:
+  - name: product
+    displayName: Product Name
+    type: string
+  - name: location
+    displayName: Datacenter
+    type: string
+    default: LV8
+
+stages:
+  - stage: DV1Deploy
+    displayName: Deploy DV1
+    jobs:
+      - job: Deploy
+        pool:
+          name: ${{ parameters.location }}
+        steps:
+          - checkout: none
+          - download: build
+            artifact: Artifacts
+          - powershell: |
+              $ErrorView = "DetailedView"
+              $DeployParams = @{
+                Environment    = 'DV1'
+                Product        = '${{ parameters.product }}'
+                BinaryLocation = '$(Pipeline.Workspace)/build/Artifacts' -replace '/', '\'
+                DeployOnly     = $true
+                Version        = '$(resources.pipeline.build.runName)'
+                Location       = '${{ parameters.location }}'
+                Verbose        = $true
+              }
+              .\Deploy-Application.ps1 @DeployParams
+            displayName: 'Deploy to DV1'
+
+  - stage: QA1Deploy
+    displayName: Deploy QA1
+    dependsOn: DV1Deploy
+    condition: succeeded('DV1Deploy')
+    jobs:
+      - job: Approval
+        pool: server
+        timeoutInMinutes: 60
+        steps:
+          - task: ManualValidation@1
+            timeoutInMinutes: 60
+            inputs:
+              instructions: 'Approve QA1 deployment for ${{ parameters.product }}'
+              onTimeout: reject
+      - job: Deploy
+        pool:
+          name: ${{ parameters.location }}
+        dependsOn: Approval
+        condition: succeeded('Approval')
+        steps:
+          - checkout: none
+          - download: build
+            artifact: Artifacts
+          - powershell: |
+              $ErrorView = "DetailedView"
+              $DeployParams = @{
+                Environment    = 'QA1'
+                Product        = '${{ parameters.product }}'
+                BinaryLocation = '$(Pipeline.Workspace)/build/Artifacts' -replace '/', '\'
+                DeployOnly     = $true
+                Version        = '$(resources.pipeline.build.runName)'
+                Location       = '${{ parameters.location }}'
+                Verbose        = $true
+              }
+              .\Deploy-Application.ps1 @DeployParams
+            displayName: 'Deploy to QA1'
+
+  - stage: SG1Deploy
+    displayName: Deploy SG1
+    dependsOn:
+      - DV1Deploy
+      - QA1Deploy
+    condition: |
+      and(
+        in(dependencies.DV1Deploy.result, 'Succeeded', 'SucceededWithIssues', 'Skipped'),
+        in(dependencies.QA1Deploy.result, 'Succeeded', 'SucceededWithIssues', 'Skipped')
+      )
+    jobs:
+      - job: Approval
+        pool: server
+        timeoutInMinutes: 360
+        steps:
+          - task: ManualValidation@1
+            timeoutInMinutes: 360
+            inputs:
+              instructions: 'Approve SG1 deployment for ${{ parameters.product }}'
+              onTimeout: reject
+      - job: Deploy
+        pool:
+          name: ${{ parameters.location }}
+        dependsOn: Approval
+        condition: succeeded('Approval')
+        steps:
+          - checkout: none
+          - download: build
+            artifact: Artifacts
+          - powershell: |
+              $ErrorView = "DetailedView"
+              $DeployParams = @{
+                Environment    = 'SG1'
+                Product        = '${{ parameters.product }}'
+                BinaryLocation = '$(Pipeline.Workspace)/build/Artifacts' -replace '/', '\'
+                DeployOnly     = $true
+                Version        = '$(resources.pipeline.build.runName)'
+                Location       = '${{ parameters.location }}'
+                Verbose        = $true
+              }
+              .\Deploy-Application.ps1 @DeployParams
+            displayName: 'Deploy to SG1'
+
+  - stage: RPRDDeploy
+    displayName: Deploy RPRD
+    dependsOn: SG1Deploy
+    condition: succeeded('SG1Deploy')
+    jobs:
+      - job: Approval
+        pool: server
+        timeoutInMinutes: 144000
+        steps:
+          - task: ManualValidation@1
+            timeoutInMinutes: 144000
+            inputs:
+              instructions: 'Approve RPRD production deployment for ${{ parameters.product }}'
+              onTimeout: reject
+      - job: Deploy
+        pool:
+          name: ${{ parameters.location }}
+        dependsOn: Approval
+        condition: succeeded('Approval')
+        steps:
+          - checkout: none
+          - download: build
+            artifact: Artifacts
+          - powershell: |
+              $ErrorView = "DetailedView"
+              $DeployParams = @{
+                Environment    = 'RPRD'
+                Product        = '${{ parameters.product }}'
+                BinaryLocation = '$(Pipeline.Workspace)/build/Artifacts' -replace '/', '\'
+                DeployOnly     = $true
+                Version        = '$(resources.pipeline.build.runName)'
+                Location       = '${{ parameters.location }}'
+                Verbose        = $true
+              }
+              .\Deploy-Application.ps1 @DeployParams
+            displayName: 'Deploy to RPRD'
