@@ -302,7 +302,7 @@ devops-sre-operations-toolkit/
 ### Clone and explore
 
 ```bash
-git clone https://github.com/<your-username>/devops-sre-operations-toolkit.git
+git clone https://github.com/Harshithj88/devops-sre-operations-toolkit.git
 cd devops-sre-operations-toolkit
 ```
 
@@ -344,9 +344,9 @@ az deployment group what-if \
 
 | Project | Focus |
 |---|---|
-| [aks-platform-bicep-github-actions](https://github.com/<your-username>/aks-platform-bicep-github-actions) | AKS infrastructure provisioning with Bicep and GitHub Actions |
-| [aks-sre-platform-lab](https://github.com/<your-username>/aks-sre-platform-lab) | Full SRE platform with observability, SLOs, and incident response |
-| [sre-devops-handbook](https://github.com/<your-username>/sre-devops-handbook) | Runbooks, checklists, cheat sheets, and operational documentation |
+| [aks-platform-bicep-github-actions](https://github.com/Harshithj88/aks-platform-bicep-github-actions) | AKS infrastructure provisioning with Bicep and GitHub Actions |
+| [aks-sre-platform-lab](https://github.com/Harshithj88/aks-sre-platform-lab) | Full SRE platform with observability, SLOs, and incident response |
+| [sre-devops-handbook](https://github.com/Harshithj88/sre-devops-handbook) | Runbooks, checklists, cheat sheets, and operational documentation |
 
 ---
 
