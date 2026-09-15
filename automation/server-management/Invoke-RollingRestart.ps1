@@ -22,11 +22,22 @@
 .PARAMETER RetryDelaySeconds
     Seconds between health check retries. Defaults to 15.
 
+.PARAMETER TimeoutMinutes
+    Total timeout for the entire rolling restart operation. Defaults to 60.
+    If exceeded, remaining servers are skipped.
+
+.PARAMETER DrainDelaySeconds
+    Seconds to wait after stopping new connections before restarting IIS.
+    Allows in-flight requests to complete. Defaults to 0 (no drain).
+
 .PARAMETER WhatIf
     Show what would happen without making changes.
 
 .EXAMPLE
     .\Invoke-RollingRestart.ps1 -ComputerName "WEB-01","WEB-02","WEB-03" -HealthEndpoint "/health"
+
+.EXAMPLE
+    .\Invoke-RollingRestart.ps1 -ComputerName "WEB-01","WEB-02" -TimeoutMinutes 30 -DrainDelaySeconds 10
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -43,7 +54,15 @@ param(
     [int]$MaxRetries = 10,
 
     [Parameter()]
-    [int]$RetryDelaySeconds = 15
+    [int]$RetryDelaySeconds = 15,
+
+    [Parameter()]
+    [ValidateRange(1, 480)]
+    [int]$TimeoutMinutes = 60,
+
+    [Parameter()]
+    [ValidateRange(0, 120)]
+    [int]$DrainDelaySeconds = 0
 )
 
 function Test-ServerHealth {
@@ -61,16 +80,31 @@ function Test-ServerHealth {
 $totalServers = $ComputerName.Count
 $completed = 0
 $failed = @()
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$timeoutMs = $TimeoutMinutes * 60 * 1000
 
 Write-Host "Starting rolling restart for $totalServers server(s)..." -ForegroundColor Cyan
 Write-Host "Health endpoint: $HealthEndpoint (port $HealthPort)" -ForegroundColor Gray
+Write-Host "Timeout: $TimeoutMinutes minutes | Drain delay: ${DrainDelaySeconds}s" -ForegroundColor Gray
 Write-Host ""
 
 foreach ($server in $ComputerName) {
     $completed++
     Write-Host "[$completed/$totalServers] Processing $server" -ForegroundColor Yellow
 
+    if ($stopwatch.ElapsedMilliseconds -ge $timeoutMs) {
+        Write-Warning "  Global timeout of $TimeoutMinutes minutes reached. Skipping remaining servers."
+        $failed += $server
+        break
+    }
+
     if ($PSCmdlet.ShouldProcess($server, "Restart IIS")) {
+        # Drain delay
+        if ($DrainDelaySeconds -gt 0) {
+            Write-Host "  Draining connections (${DrainDelaySeconds}s)..." -ForegroundColor Gray
+            Start-Sleep -Seconds $DrainDelaySeconds
+        }
+
         # Restart IIS
         Write-Host "  Restarting IIS on $server..." -ForegroundColor Gray
         try {
@@ -112,7 +146,9 @@ foreach ($server in $ComputerName) {
 }
 
 # Summary
-Write-Host "Rolling restart complete." -ForegroundColor Cyan
+$stopwatch.Stop()
+$elapsed = '{0:mm\:ss}' -f [timespan]::FromMilliseconds($stopwatch.ElapsedMilliseconds)
+Write-Host "Rolling restart complete. Elapsed: $elapsed" -ForegroundColor Cyan
 Write-Host "  Succeeded: $($completed - $failed.Count)" -ForegroundColor Green
 if ($failed.Count -gt 0) {
     Write-Host "  Failed: $($failed -join ', ')" -ForegroundColor Red
