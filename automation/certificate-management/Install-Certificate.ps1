@@ -21,9 +21,22 @@
 .PARAMETER Port
     HTTPS port for the IIS binding. Defaults to 443.
 
+.PARAMETER HostHeader
+    Optional. Hostname for an SNI (host header) binding. Required when binding a
+    wildcard or multi-SAN certificate so multiple sites can share port 443.
+
+.PARAMETER RequireSni
+    Switch. When set with -HostHeader, creates the binding with SNI enabled
+    (sslFlags=1), allowing multiple certificates on the same IP and port.
+
 .EXAMPLE
     $pwd = Read-Host -AsSecureString -Prompt "PFX Password"
     .\Install-Certificate.ps1 -ComputerName "WEB-01" -PfxPath ".\wildcard.pfx" -PfxPassword $pwd -IISSiteName "Default Web Site"
+
+.EXAMPLE
+    # Bind a wildcard certificate to a specific hostname using SNI
+    .\Install-Certificate.ps1 -ComputerName "WEB-01" -PfxPath ".\star.contoso.com.pfx" -PfxPassword $pwd `
+        -IISSiteName "api.contoso.com" -HostHeader "api.contoso.com" -RequireSni
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -40,7 +53,13 @@ param(
     [string]$IISSiteName,
 
     [Parameter()]
-    [int]$Port = 443
+    [int]$Port = 443,
+
+    [Parameter()]
+    [string]$HostHeader,
+
+    [Parameter()]
+    [switch]$RequireSni
 )
 
 if (-not (Test-Path $PfxPath)) {
@@ -65,26 +84,55 @@ if ($PSCmdlet.ShouldProcess($ComputerName, "Install certificate from $pfxFileNam
         return $cert.Thumbprint
     } -ArgumentList "C:\Windows\Temp\$pfxFileName", $PfxPassword -ErrorAction Stop
 
+    # $thumbprint may be an array when the PFX includes a chain; take the leaf (first) entry
+    if ($thumbprint -is [array]) { $thumbprint = $thumbprint[0] }
     Write-Host "Certificate imported. Thumbprint: $thumbprint" -ForegroundColor Green
+
+    # Detect wildcard / multi-SAN certificates and surface subject details
+    $certInfo = Invoke-Command -ComputerName $ComputerName -ScriptBlock {
+        param($thumb)
+        $c = Get-Item "Cert:\LocalMachine\My\$thumb" -ErrorAction SilentlyContinue
+        if (-not $c) { return $null }
+        $sans = @()
+        $sanExt = $c.Extensions | Where-Object { $_.Oid.FriendlyName -eq 'Subject Alternative Name' }
+        if ($sanExt) { $sans = ($sanExt.Format($false) -split ', ') }
+        [PSCustomObject]@{
+            Subject    = $c.Subject
+            IsWildcard = ($c.Subject -match '\*\.') -or (($sans -join ',') -match '\*\.')
+            Sans       = $sans
+        }
+    } -ArgumentList $thumbprint -ErrorAction SilentlyContinue
+
+    if ($certInfo -and $certInfo.IsWildcard) {
+        Write-Host "  Detected wildcard/multi-SAN certificate: $($certInfo.Subject)" -ForegroundColor Yellow
+        if ($IISSiteName -and -not $HostHeader) {
+            Write-Warning "Wildcard certificate detected but no -HostHeader supplied. Consider -HostHeader with -RequireSni so multiple sites can share port $Port."
+        }
+    }
 
     # Bind to IIS site if requested
     if ($IISSiteName) {
         Write-Host "Binding to IIS site '$IISSiteName' on port $Port..." -ForegroundColor Cyan
         Invoke-Command -ComputerName $ComputerName -ScriptBlock {
-            param($siteName, $port, $thumbprint)
+            param($siteName, $port, $thumbprint, $hostHeader, $requireSni)
             Import-Module WebAdministration
 
-            $binding = Get-WebBinding -Name $siteName -Protocol https -Port $port -ErrorAction SilentlyContinue
-            if ($binding) {
-                $binding.AddSslCertificate($thumbprint, 'My')
-                Write-Host "  Binding updated."
+            $sslFlags = if ($requireSni) { 1 } else { 0 }
+            $existing = Get-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $hostHeader -ErrorAction SilentlyContinue
+            if ($existing) {
+                $existing.AddSslCertificate($thumbprint, 'My')
+                Write-Host "  Binding updated (host: '$hostHeader', SNI: $([bool]$requireSni))."
             } else {
-                New-WebBinding -Name $siteName -Protocol https -Port $port -IPAddress '*'
-                $newBinding = Get-WebBinding -Name $siteName -Protocol https -Port $port
+                if ($hostHeader) {
+                    New-WebBinding -Name $siteName -Protocol https -Port $port -IPAddress '*' -HostHeader $hostHeader -SslFlags $sslFlags
+                } else {
+                    New-WebBinding -Name $siteName -Protocol https -Port $port -IPAddress '*'
+                }
+                $newBinding = Get-WebBinding -Name $siteName -Protocol https -Port $port -HostHeader $hostHeader
                 $newBinding.AddSslCertificate($thumbprint, 'My')
-                Write-Host "  Binding created."
+                Write-Host "  Binding created (host: '$hostHeader', SNI: $([bool]$requireSni))."
             }
-        } -ArgumentList $IISSiteName, $Port, $thumbprint -ErrorAction Stop
+        } -ArgumentList $IISSiteName, $Port, $thumbprint, $HostHeader, $RequireSni.IsPresent -ErrorAction Stop
 
         Write-Host "IIS binding complete." -ForegroundColor Green
     }
