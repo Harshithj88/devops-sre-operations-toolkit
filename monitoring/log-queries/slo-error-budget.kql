@@ -1,0 +1,56 @@
+// SLO Error Budget Analysis
+// Track availability against target SLO and calculate remaining error budget.
+// Adjust the SLO target and window to match your service objectives.
+
+// --- Configuration ---
+let SloTarget = 99.9;          // Target availability percentage
+let WindowDays = 30;           // Rolling SLO window
+let TotalMinutes = WindowDays * 24 * 60;
+//
+// --- Availability SLO (based on successful requests) ---
+AppRequests
+| where TimeGenerated > ago(WindowDays * 1d)
+| summarize
+    Total = count(),
+    Good  = countif(Success == true and toint(ResultCode) < 500)
+| extend
+    ActualAvailability = round(100.0 * Good / Total, 4),
+    SloTargetPct       = SloTarget
+| extend
+    ErrorBudgetTotalPct   = 100.0 - SloTarget,
+    ErrorBudgetUsedPct    = round((100.0 - (100.0 * Good / Total)), 4)
+| extend
+    ErrorBudgetRemainingPct = round(ErrorBudgetTotalPct - ErrorBudgetUsedPct, 4),
+    BudgetConsumedRatio     = round(100.0 * (100.0 - (100.0 * Good / Total)) / (100.0 - SloTarget), 2)
+| project
+    ActualAvailability,
+    SloTargetPct,
+    ErrorBudgetTotalPct,
+    ErrorBudgetUsedPct,
+    ErrorBudgetRemainingPct,
+    BudgetConsumedRatio,
+    BudgetStatus = case(
+        BudgetConsumedRatio >= 100, "EXHAUSTED",
+        BudgetConsumedRatio >= 75,  "RED",
+        BudgetConsumedRatio >= 50,  "YELLOW",
+        "GREEN")
+
+// --- Error budget burn rate (hourly trend) ---
+// AppRequests
+// | where TimeGenerated > ago(7d)
+// | summarize
+//     Total = count(),
+//     Failed = countif(Success == false or toint(ResultCode) >= 500)
+//     by bin(TimeGenerated, 1h)
+// | extend HourlyErrorRate = round(100.0 * Failed / Total, 4)
+// | extend BurnRate = round(HourlyErrorRate / (100.0 - 99.9), 2)  // >1 means burning faster than budget allows
+// | project TimeGenerated, HourlyErrorRate, BurnRate
+// | order by TimeGenerated asc
+
+// --- Fast-burn alert (2% budget in 1 hour = 14.4x burn rate) ---
+// AppRequests
+// | where TimeGenerated > ago(1h)
+// | summarize Total = count(), Failed = countif(Success == false or toint(ResultCode) >= 500)
+// | extend ErrorRate = round(100.0 * Failed / Total, 4)
+// | extend BurnRate = round(ErrorRate / (100.0 - 99.9), 2)
+// | where BurnRate > 14.4
